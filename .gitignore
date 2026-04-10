@@ -1,0 +1,25 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+checkpoints/
+results/
+Final Baseline/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+*.pth
+*.npz
+*.gif
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+all_results_seed*.csv
+direction1_results_seed*.csv
+Summary.txt
