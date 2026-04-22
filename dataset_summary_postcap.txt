@@ -1,0 +1,17 @@
+============================================================
+  BDD100K Vehicle Crop Dataset — Post-Cap Summary
+  Area filter : >= 4096 px²
+  Day   caps  : train=3728 val=798 test=798
+  Night caps  : train=1354 val=290 test=290
+============================================================
+
+  category     day/train   day/val   day/test   night/train   night/val   night/test
+  bus               3728         785         776        1246         266         243
+  car               3728         785         776        1246         266         243
+  truck             3728         785         776        1246         266         243
+
+  Grand total: 21132
+
+============================================================
+  END OF REPORT
+============================================================

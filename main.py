@@ -8,6 +8,7 @@ from config import (
     MODEL_NAME, EXPERIMENT, SEED,
     RUN_MODE, SEEDS, MODELS_TO_RUN,
     LR_GRID_SEARCH, BACKBONE_LR_GRID, HEAD_LR_GRID,
+    LAMBDA_MAX_GRID, GAMMA_GRID, LAMBDA_GRID_SEARCH,
     DANN_WARMSTART, DANN_SEMI_SUPERVISED,
     EXP1_ACTIVE, EXP1_CONFIG_NAME, SOURCE_WEATHER_INCLUDE, SOURCE_SCENE_INCLUDE
 )
@@ -569,6 +570,148 @@ def run_all() -> None:
 # Change those two values to run a specific experiment
 # ════════════════════════════════════════════════════════════════════════════
 
+
+def run_lambda_gamma_grid_search(model_name: str) -> None:
+    """
+    Phase 2 Tier 1: Search over Lambda Max and Gamma.
+    """
+    print(f"\n[Grid Search] Starting Lambda/Gamma grid search for {model_name}")
+    
+    orig_lambda_max = config.DANN_LAMBDA_MAX
+    orig_gamma      = config.DANN_LAMBDA_GAMMA
+
+    for l_max in LAMBDA_MAX_GRID:
+        for g_val in GAMMA_GRID:
+            print(f"\n  [Grid] Testing Lambda_max: {l_max} | Gamma: {g_val}")
+            
+            # Patch config
+            config.DANN_LAMBDA_MAX   = l_max
+            config.DANN_LAMBDA_GAMMA = g_val
+            config.DANN_WARMSTART    = True
+            
+            # Custom tag for results logging
+            exp_tag = f"dann_L{l_max}_G{g_val}"
+            
+            # Run DANN
+            run_dann(model_name, experiment_label=exp_tag)
+
+    # Restore originals
+    config.DANN_LAMBDA_MAX   = orig_lambda_max
+    config.DANN_LAMBDA_GAMMA = orig_gamma
+
+
+
+def run_tier3_ablations(model_name: str) -> None:
+    """
+    Phase 2 Tier 3: Structural Ablations against CONFIG_OPT.
+    """
+    print(f"\n[Ablations] Starting Tier 3 Structural Ablations for {model_name}")
+    
+    # Store original baseline values
+    orig_dim   = config.FEATURE_DIM
+    orig_depth = config.DOMAIN_CLASSIFIER_DEPTH
+    orig_bs    = config.BATCH_SIZE
+    orig_wd    = config.WEIGHT_DECAY
+    
+    ablations = [
+        {"tag": "dann_dim128", "attr": "FEATURE_DIM", "val": 128},
+        {"tag": "dann_dim512", "attr": "FEATURE_DIM", "val": 512},
+        {"tag": "dann_deep",   "attr": "DOMAIN_CLASSIFIER_DEPTH", "val": "deep"},
+        {"tag": "dann_bs64",   "attr": "BATCH_SIZE", "val": 64},
+        {"tag": "dann_wd1e-5", "attr": "WEIGHT_DECAY", "val": 1e-5},
+        {"tag": "dann_wd1e-3", "attr": "WEIGHT_DECAY", "val": 1e-3},
+    ]
+    
+    for abl in ablations:
+        print(f"\n  [Ablation] Testing {abl['tag']} ({abl['attr']} = {abl['val']})")
+        
+        # Patch config
+        setattr(config, abl['attr'], abl['val'])
+        
+        # Run DANN
+        run_dann(model_name, experiment_label=abl['tag'])
+        
+        # Restore baseline before next run
+        config.FEATURE_DIM = orig_dim
+        config.DOMAIN_CLASSIFIER_DEPTH = orig_depth
+        config.BATCH_SIZE = orig_bs
+        config.WEIGHT_DECAY = orig_wd
+
+
+
+def run_phase3_21k(model_name: str) -> None:
+    """
+    Phase 3: Main result sweep on Dataset A (21k).
+    5 strategies x 3 seeds = 15 runs.
+    """
+    print(f"\n[Main] Starting Phase 3 (21k Dataset A) for {model_name}")
+    
+    strategies = [
+        "source_only",
+        "target_only",
+        "finetune",
+        "dann_warmstart",
+        "semi_dann"
+    ]
+    
+    # We loop through seeds as the outer loop to ensure each seed
+    # gets all its strategies run together if needed
+    for s_idx in range(len(config.SEEDS)):
+        current_seed = config.SEEDS[s_idx]
+        print(f"\n{'='*40}")
+        print(f"  SEED {current_seed} ({s_idx+1}/{len(config.SEEDS)})")
+        print(f"{'='*40}")
+        
+        # Patch active seed in config
+        config.ACTIVE_SEED_INDEX = s_idx
+        config.SEED = current_seed
+        
+        for strat in strategies:
+            print(f"\n[Run] Strategy: {strat} | Seed: {current_seed}")
+            # Ensure fresh seed for every run to guarantee reproducibility
+            set_seed(current_seed)
+            try:
+                run_single(model_name, strat)
+            except Exception as e:
+                print(f"[Error] {strat} failed on seed {current_seed}: {e}")
+                import traceback
+                traceback.print_exc()
+
+
+def run_phase3_51k(model_name: str) -> None:
+    """
+    Phase 3: Main result sweep on Dataset B (51k).
+    5 strategies x 3 seeds = 15 runs.
+    """
+    print(f"\n[Main] Starting Phase 3 (51k Dataset B) for {model_name}")
+    
+    strategies = [
+        "source_only",
+        "target_only",
+        "finetune",
+        "dann_warmstart",
+        "semi_dann"
+    ]
+    
+    for s_idx in range(len(config.SEEDS)):
+        current_seed = config.SEEDS[s_idx]
+        print(f"\n{'='*40}")
+        print(f"  SEED {current_seed} ({s_idx+1}/{len(config.SEEDS)})")
+        print(f"{'='*40}")
+        
+        config.ACTIVE_SEED_INDEX = s_idx
+        config.SEED = current_seed
+        
+        for strat in strategies:
+            print(f"\n[Run] Strategy: {strat} | Seed: {current_seed}")
+            set_seed(current_seed)
+            try:
+                run_single(model_name, strat)
+            except Exception as e:
+                print(f"[Error] {strat} failed on seed {current_seed}: {e}")
+                import traceback
+                traceback.print_exc()
+
 def main() -> None:
     """
     Core entry point. Dispatches based on RUN_MODE in config.py.
@@ -583,6 +726,22 @@ def main() -> None:
     if LR_GRID_SEARCH:
         set_seed(SEED)
         run_lr_grid_search(MODEL_NAME, EXPERIMENT)
+        return
+
+    if LAMBDA_GRID_SEARCH:
+        set_seed(SEED)
+        run_lambda_gamma_grid_search(MODEL_NAME)
+        return
+
+    if RUN_MODE == "phase3_51k":
+        run_phase3_51k(MODEL_NAME)
+        return
+    if RUN_MODE == "phase3_21k":
+        run_phase3_21k(MODEL_NAME)
+        return
+    if RUN_MODE == "tier3_ablations":
+        set_seed(SEED)
+        run_tier3_ablations(MODEL_NAME)
         return
 
     if RUN_MODE == "single":

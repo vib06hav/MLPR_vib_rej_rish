@@ -1,0 +1,40 @@
+============================================================
+  BDD100K Vehicle Crop Dataset — Summary Report
+  Area filter : >= 4096 px²
+  Day cap     : train=3728 val=798 test=798
+  Night cap   : train=1354 val=290 test=290
+============================================================
+
+EXTRACTION STATS (pre-cap)
+----------------------------------------
+  Total images processed    : 73886
+  Total vehicles extracted  : 250546
+
+  Per-class counts:
+    bus        : 7074
+    car        : 225618
+    truck      : 17854
+
+  Per-domain counts:
+    day        : 152812
+    night      : 97734
+
+  Per-weather counts:
+    clear                : 128830
+    foggy                : 365
+    overcast             : 31391
+    partly cloudy        : 17364
+    rainy                : 19153
+    snowy                : 20563
+    undefined            : 32880
+
+DISCARD STATS
+----------------------------------------
+  Small boxes (< 4096 px²) : 543244
+  Invalid / degenerate boxes  : 8
+  Unknown categories seen     : 1256940
+  Skipped time-of-day entries : 5977
+
+============================================================
+  END OF REPORT
+============================================================

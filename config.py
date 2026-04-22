@@ -3,9 +3,9 @@ from pathlib import Path
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 DATASET_ROOT   = Path(r"C:\Users\vibha\Downloads\archive")
-PROCESSED_ROOT = DATASET_ROOT / "processed_dataset"
-RESULTS_DIR    = DATASET_ROOT / "results"
-CHECKPOINT_DIR = DATASET_ROOT / "checkpoints"
+PROCESSED_ROOT = DATASET_ROOT / "processed_dataset_51k"
+RESULTS_DIR    = DATASET_ROOT / "results_51k_label_sweep"
+CHECKPOINT_DIR = DATASET_ROOT / "checkpoints_51k_label_sweep"
 
 # ── Dataset ───────────────────────────────────────────────────────────────────
 CLASSES        = ["bus", "car", "truck"]   # sorted — index 0,1,2
@@ -13,7 +13,16 @@ NUM_CLASSES    = 3
 DOMAINS        = ["day", "night"]          # day=0, night=1
 SPLITS         = ["train", "val", "test"]
 INPUT_SIZE     = 224
+
 CAP            = 1246                      # crops per class per domain after balancing
+
+# ── Extraction Enhancements / Ablations ───────────────────────────────────────
+FOLD_DAWN_DUSK = True                      # Map dawn/dusk -> Day (zero-cost data)
+CLASS_RATIO_ABLATION = {"car": 4, "truck": 2, "bus": 1} # Relative class volume weights
+NIGHT_BUS_MIN_AREA_OVERRIDE = 2500         # Lower size floor strictly for bottleneck
+ASYMMETRIC_AUGMENTATION = True             # Stronger jitter/blur applied on night only
+
+ASYMMETRIC_AUGMENTATION = True             # Stronger jitter/blur applied on night only
 
 # ── Training ──────────────────────────────────────────────────────────────────
 BATCH_SIZE     = 32
@@ -27,17 +36,22 @@ ACTIVE_SEED_INDEX = 0
 SEED = SEEDS[ACTIVE_SEED_INDEX]
 
 # ── Learning rates ────────────────────────────────────────────────────────────
-LR_HEAD        = 1e-3                      # classifier head — all models
-LR_BACKBONE_PRETRAINED = 1e-4             # ResNet18 + EfficientNet-B0 backbone
+LR_HEAD        = 2e-3                      # classifier head — optimized winner
+LR_BACKBONE_PRETRAINED = 2e-4             # EfficientNet-B0 backbone — optimized winner
 LR_BACKBONE_SCRATCH    = 1e-3             # Custom CNN — trained fully from scratch
 
-# ── LR grid section ───────────────────────────────────────────────────────────
-BACKBONE_LR_GRID = [1e-5, 5e-5, 1e-4]
-HEAD_LR_GRID     = [5e-4, 1e-3]
+BACKBONE_LR_GRID = [5e-5, 1e-4, 2e-4]
+HEAD_LR_GRID     = [5e-4, 1e-3, 2e-3]
 LR_GRID_SEARCH   = False
 
+# ── Phase 2 Tier 1 Grid section ───────────────────────────────────────────────
+LAMBDA_MAX_GRID    = [0.5, 1.0, 1.5]
+GAMMA_GRID         = [5.0, 10.0, 20.0]
+LAMBDA_GRID_SEARCH = False
+
+
 # ── Regularisation section ────────────────────────────────────────────────────
-WEIGHT_DECAY           = 1e-4
+WEIGHT_DECAY           = 1e-3              # Optimized winner
 GRAD_CLIP_NORM         = 1.0
 DROPOUT_RATE           = 0.0
 BATCHNORM_IN_PROJECTOR = False
@@ -46,7 +60,7 @@ BATCHNORM_IN_PROJECTOR = False
 LR_SCHEDULER = "plateau"  # alternative: "cosine"
 
 # ── Model ─────────────────────────────────────────────────────────────────────
-FEATURE_DIM    = 256                       # projection dim for all three models
+FEATURE_DIM    = 512                       # Optimized winner
 FEATURE_DIM_SEARCH = [128, 256, 512]
 RESIZE_OPTIONS     = [224, 256, 320]
 
@@ -72,8 +86,9 @@ AUG_TRANSLATE        = False
 AUG_PAD_SIZE         = 256               # pad to this before random crop to INPUT_SIZE
 
 # ── DANN ──────────────────────────────────────────────────────────────────────
-DANN_LAMBDA_MAX      = 1.0               # lambda grows from 0 → LAMBDA_MAX
-DANN_LAMBDA_GAMMA    = 10.0              # controls growth speed (from original paper)
+DANN_LAMBDA_MAX      = 0.5               # lambda grows from 0 → MAX (Winner Tier 1)
+DANN_LAMBDA_GAMMA    = 5.0               # growth speed (Winner Tier 1)
+
 DANN_WARMSTART       = True
 DANN_SEMI_SUPERVISED = False
 DANN_LAMBDA_SCHEDULE = "sigmoid"         # alternatives: "linear", "constant"
@@ -86,7 +101,7 @@ DOMAIN_CLASSIFIER_DEPTH = "shallow"      # alternative: "deep"
 # Change these two values to switch between the 12 runs
 
 # Options: "custom_cnn" | "resnet18" | "efficientnet_b0"
-MODEL_NAME   = "resnet18"
+MODEL_NAME   = "efficientnet_b0"
 
 # Options: "target_only" | "source_only" | "finetune" | "dann"
 EXPERIMENT   = "dann"
@@ -97,17 +112,18 @@ EXPERIMENT   = "dann"
 # "all_models" — runs all 4 experiments for all 3 models sequentially
 # "all_seeds" — runs the full 12-run pipeline for all 3 seeds back to back
 # "direction1" — overnight target-label-ratio sweep for DANN
+# "lambda_grid" — Phase 2 Tier 1: Lambda/Gamma sweep
 RUN_MODE = "direction1"
 
 # Models to include in pipeline runs
-MODELS_TO_RUN = ["resnet18", "efficientnet_b0"]
+MODELS_TO_RUN = ["efficientnet_b0"]
 SAVE_EPOCH_FEATURES = False
 SAVE_FEATURES_EVERY_N = 3    # save features every N epochs (epoch 1 always saved)
 
 # ── Direction 1 (Night Label Ratio Study) ───────────────────────────────────
 # Sweeps target-domain label availability from 0% → 100% inside warmstarted DANN.
 # Existing baselines (source_only / target_only / finetune) remain unchanged.
-DIRECTION1_ACTIVE = False
+DIRECTION1_ACTIVE = True
 DIRECTION1_EXPERIMENT_NAME = "direction1_label_ratio"
 DIRECTION1_MODELS_TO_RUN = ["efficientnet_b0"]
 DIRECTION1_LABEL_RATIOS = [0.00, 0.05, 0.10, 0.25, 0.50, 0.75, 1.00]

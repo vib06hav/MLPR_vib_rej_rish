@@ -134,8 +134,9 @@ class VehicleDataset(Dataset):
         self.weather_include = weather_include
         self.scene_include   = scene_include
 
-        # Build transform pipeline once at init
-        self.transform = self._build_transform()
+        # Build transform pipelines for both domains
+        self.transform_day = self._build_transform(domain="day")
+        self.transform_night = self._build_transform(domain="night")
 
         # Load all records from metadata.json files
         self.records = self._load_records()
@@ -215,7 +216,7 @@ class VehicleDataset(Dataset):
         return records
 
     # ── Transform builder ─────────────────────────────────────────────────────
-    def _build_transform(self) -> T.Compose:
+    def _build_transform(self, domain: str = "day") -> T.Compose:
         """
         Train split  → augmentation + normalisation
         Val/test     → resize + normalisation only
@@ -252,6 +253,12 @@ class VehicleDataset(Dataset):
             if AUG_TRANSLATE:
                 transforms.append(T.RandomAffine(degrees=0, translate=(0.1, 0.1)))
 
+            # Asymmetric augmentation for night data
+            if getattr(config, "ASYMMETRIC_AUGMENTATION", False) and domain == "night":
+                # Stronger jitter and specific night blurring for scarce domain yield
+                transforms.append(T.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1))
+                transforms.append(T.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)))
+
             # 3. Terminate with conversion and normalisation
             transforms.extend([
                 T.ToTensor(),
@@ -274,7 +281,12 @@ class VehicleDataset(Dataset):
 
         # Load image — crops are already 224×224 JPEGs on disk
         img = Image.open(rec["_img_path"]).convert("RGB")
-        img = self.transform(img)
+        
+        # Asymmetric logic: apply domain-specific transform
+        if rec["domain"] == "night":
+            img = self.transform_night(img)
+        else:
+            img = self.transform_day(img)
 
         return img, rec["_class_label"], rec["_domain_label"], idx
 
@@ -534,10 +546,11 @@ def compute_dataset_stats() -> tuple[list, list]:
     )
 
     # Override transform to raw tensor only
-    ds.transform = T.Compose([
+    ds.transform_day = T.Compose([
         T.Resize((INPUT_SIZE, INPUT_SIZE)),
         T.ToTensor(),
     ])
+    ds.transform_night = ds.transform_day
 
     loader = DataLoader(ds, batch_size=64, shuffle=False, num_workers=2)
 
@@ -565,8 +578,3 @@ def compute_dataset_stats() -> tuple[list, list]:
     print("[Stats] Paste these into config.py")
 
     return mean_list, std_list
-
-"""A few things to note before we move on:
-The DANN train split is loaded three ways — once combined (train) for the classification loop, and separately as train_day and train_night for the domain discriminator. The DANN trainer in train.py will zip those two together so every step sees one batch from each domain.
-compute_dataset_stats() — run this once before your first custom CNN experiment. It'll print exact values, you paste them into config.py, and that's it. The placeholders I put in config.py are reasonable estimates but your actual crops may differ slightly.
-num_workers=2 — safe default for Windows. If you're on Linux you can raise it to 4."""

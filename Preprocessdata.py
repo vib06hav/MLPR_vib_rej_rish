@@ -29,6 +29,7 @@ import random
 import cv2
 from pathlib import Path
 from collections import defaultdict
+import config
 
 # ── Reproducibility ───────────────────────────────────────────────────────────
 MASTER_SEED = 42
@@ -141,7 +142,7 @@ def group_entries_by_timeofday(entries: list) -> tuple:
     day_entries, night_entries, skipped_entries = [], [], []
     for entry in entries:
         tod = entry.get("attributes", {}).get("timeofday", "unknown")
-        if tod == "daytime":
+        if tod == "daytime" or (getattr(config, "FOLD_DAWN_DUSK", False) and tod == "dawn/dusk"):
             day_entries.append(entry)
         elif tod == "night":
             night_entries.append(entry)
@@ -276,7 +277,7 @@ print("\n[DONE] Stage 3 complete.")
 
 def get_domain(entry: dict):
     tod = entry.get("attributes", {}).get("timeofday", "")
-    if tod == "daytime":
+    if tod == "daytime" or (getattr(config, "FOLD_DAWN_DUSK", False) and tod == "dawn/dusk"):
         return "day"
     if tod == "night":
         return "night"
@@ -353,7 +354,12 @@ def process_entry(
             continue
 
         area = (x2 - x1) * (y2 - y1)
-        if area < MIN_AREA:
+        
+        current_min_area = MIN_AREA
+        if domain == "night" and category == "bus" and getattr(config, "NIGHT_BUS_MIN_AREA_OVERRIDE", None):
+            current_min_area = config.NIGHT_BUS_MIN_AREA_OVERRIDE
+            
+        if area < current_min_area:
             small_box_counter[0] += 1
             continue
 
@@ -376,7 +382,7 @@ def process_entry(
             invalid_box_counter[0] += 1
             continue
 
-        crop_resized = cv2.resize(crop, RESIZE_TO)
+        crop_resized = cv2.resize(crop, RESIZE_TO, interpolation=cv2.INTER_LANCZOS4)
 
         out_dir   = get_output_dir(domain, split, category)
         crop_name = f"{basename}_{category}{vehicle_idx}.jpg"
@@ -629,39 +635,74 @@ for domain in ("day", "night"):
 
 # ── 8c. Apply caps per (domain, split, category) — NO cross-split pooling ─────
 #
-# For each (domain, split) the effective cap per class is:
-#   min(DOMAIN_SPLIT_CAPS[domain][split], actual count of that class in that split)
-# Then all three classes in that (domain, split) are capped to the same value
-# which is the minimum across bus/car/truck in that bucket.
-# This preserves class balance within every split independently.
+# Ablation: apply CLASS_RATIO_ABLATION and stratified priority sampling.
+# If config.CLASS_RATIO_ABLATION is not set, fallback to global min cap.
 
 random.seed(MASTER_SEED)
 
 total_kept    = 0
 total_removed = 0
 
+def stratified_priority_sample(records, k):
+    if len(records) <= k:
+        return records
+    
+    # Sort by area
+    records_sorted = sorted(records, key=lambda r: r.get("bbox_area", 0))
+    
+    # Bin into 4 size buckets
+    bucket_count = 4
+    buckets = [[] for _ in range(bucket_count)]
+    for i, r in enumerate(records_sorted):
+        bucket_idx = min(bucket_count - 1, int(i / len(records_sorted) * bucket_count))
+        # Prioritize hard cases by placing them at the beginning
+        if r.get("occluded") or r.get("truncated"):
+            buckets[bucket_idx].insert(0, r)
+        else:
+            buckets[bucket_idx].append(r)
+            
+    kept = []
+    # Pull from buckets round-robin
+    idx = 0
+    while len(kept) < k:
+        b_idx = idx % bucket_count
+        if buckets[b_idx]:
+            kept.append(buckets[b_idx].pop(0))
+        idx += 1
+        
+    return kept
+
 for domain in ("day", "night"):
     for split in ("train", "val", "test"):
 
         target_cap = DOMAIN_SPLIT_CAPS[domain][split]
-
-        # Find the actual minimum count across classes in this bucket
-        # (cap cannot exceed what is available for the rarest class)
-        actual_counts = {
-            cat: len(metadata_store[domain][split][cat])
-            for cat in ALLOWED_CATEGORIES
-        }
-        effective_cap = min(target_cap, min(actual_counts.values()))
-
-        print(f"\n  [{domain}/{split}] target_cap={target_cap} "
-              f"actual_min={min(actual_counts.values())} "
-              f"effective_cap={effective_cap}")
+        class_ratios = getattr(config, "CLASS_RATIO_ABLATION", {"bus": 1, "car": 1, "truck": 1})
+        
+        # Calculate maximum possible multiplier
+        # For each class, multiplier can't exceed actual / ratio
+        max_multiplier = target_cap # fallback default
+        for cat in ALLOWED_CATEGORIES:
+            records = metadata_store[domain][split][cat]
+            actual = len(records)
+            ratio = class_ratios.get(cat, 1)
+            limit = actual / ratio
+            if cat == "bus":
+                max_multiplier = limit
+            else:
+                max_multiplier = min(max_multiplier, limit)
+                
+        # The base amount refers to ratio=1
+        base_amount = int(min(max_multiplier, target_cap))
+        
+        print(f"\n  [{domain}/{split}] target_cap={target_cap} base_amount={base_amount}")
 
         for cat in sorted(ALLOWED_CATEGORIES):
             records = metadata_store[domain][split][cat]
+            ratio = class_ratios.get(cat, 1)
+            effective_cap = int(base_amount * ratio)
 
             if len(records) > effective_cap:
-                kept    = random.sample(records, effective_cap)
+                kept    = stratified_priority_sample(records, effective_cap)
                 removed = [r for r in records if r not in kept]
 
                 # Delete image files for removed records
@@ -677,7 +718,7 @@ for domain in ("day", "night"):
                 kept = records
 
             total_kept += len(kept)
-            print(f"    {cat:<8} : kept {len(kept)}")
+            print(f"    {cat:<8} : kept {len(kept)}  (cap was {effective_cap})")
 
 print(f"\n  [TRIM] Total kept    : {total_kept}")
 print(f"  [TRIM] Total removed : {total_removed}")
