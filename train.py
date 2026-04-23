@@ -10,6 +10,7 @@ from config import (
     MAX_EPOCHS, EARLY_STOP_PATIENCE, LR_PATIENCE,
     SEEDS, CHECKPOINT_DIR, RESULTS_DIR,
     WEIGHT_DECAY, GRAD_CLIP_NORM, LR_SCHEDULER,
+    GRAD_ACCUM_STEPS,
 )
 import config
 from models import BaseModel, get_param_groups
@@ -198,14 +199,15 @@ def train_standard(
                     loss_val   = losses_none[i].item()
                     per_sample_losses[sample_idx] = loss_val
 
-            scaler.scale(loss).backward()
-            
-            # Gradient clipping
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
-            
-            scaler.step(optimizer)
-            scaler.update()
+            # ── Gradient accumulation ─────────────────────────────────────
+            accum_steps = config.GRAD_ACCUM_STEPS
+            scaler.scale(loss / accum_steps).backward()
+            if (train_total // max(imgs.size(0), 1) + 1) % accum_steps == 0:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
 
             train_loss    += loss.item() * imgs.size(0)
             preds          = logits.argmax(dim=1)
@@ -451,14 +453,15 @@ def train_dann(
                 # ── Total loss ────────────────────────────────────────────────
                 total_loss = class_loss + lam * domain_loss
 
-            scaler.scale(total_loss).backward()
-            
-            # Gradient clipping
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
-            
-            scaler.step(optimizer)
-            scaler.update()
+            # ── Gradient accumulation ─────────────────────────────────────
+            accum_steps = config.GRAD_ACCUM_STEPS
+            scaler.scale(total_loss / accum_steps).backward()
+            if (step + 1) % accum_steps == 0 or (step + 1) == steps_per_epoch:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
 
             # ── Accumulate stats ──────────────────────────────────────────────
             epoch_class_loss  += class_loss.item()

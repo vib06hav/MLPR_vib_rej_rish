@@ -712,6 +712,73 @@ def run_phase3_51k(model_name: str) -> None:
                 import traceback
                 traceback.print_exc()
 
+def run_phase3_sota_b3(model_name: str) -> None:
+    """
+    Phase 3.5 — SOTA Benchmark sweep on Dataset B (51k) using a larger backbone.
+    3 key strategies x 3 seeds = 9 runs.
+
+    Includes automatic OOM recovery:
+      - If a run throws torch.cuda.OutOfMemoryError, BATCH_SIZE is halved
+        and GRAD_ACCUM_STEPS is doubled (effective batch stays the same).
+      - The failed run is retried once with these adjusted settings.
+    """
+    print(f"\n[Main] Starting Phase 3.5 SOTA Benchmark for {model_name}")
+
+    strategies = [
+        "finetune",
+        "semi_dann",
+    ]
+
+    orig_batch     = config.BATCH_SIZE
+    orig_accum     = config.GRAD_ACCUM_STEPS
+
+    for s_idx in range(len(config.SEEDS)):
+        current_seed = config.SEEDS[s_idx]
+        print(f"\n{'='*40}")
+        print(f"  SEED {current_seed} ({s_idx+1}/{len(config.SEEDS)})")
+        print(f"{'='*40}")
+
+        config.ACTIVE_SEED_INDEX = s_idx
+        config.SEED = current_seed
+
+        for strat in strategies:
+            print(f"\n[Run] Strategy: {strat} | Seed: {current_seed} | Model: {model_name}")
+            set_seed(current_seed)
+
+            # Reset to default settings before each run
+            config.BATCH_SIZE      = orig_batch
+            config.GRAD_ACCUM_STEPS = orig_accum
+            torch.cuda.empty_cache()
+
+            try:
+                run_single(model_name, strat)
+
+            except torch.cuda.OutOfMemoryError:
+                # ── OOM Recovery ───────────────────────────────────────────────
+                print(f"\n[OOM] Caught OOM on {strat} seed {current_seed}.")
+                print(f"      Retrying with BATCH_SIZE={orig_batch//2}, "
+                      f"GRAD_ACCUM_STEPS={orig_accum*2} (effective batch unchanged).")
+                torch.cuda.empty_cache()
+                config.BATCH_SIZE       = orig_batch // 2
+                config.GRAD_ACCUM_STEPS = orig_accum * 2
+                set_seed(current_seed)
+                try:
+                    run_single(model_name, strat)
+                except Exception as e2:
+                    print(f"[Error] {strat} also failed after OOM recovery: {e2}")
+                    import traceback
+                    traceback.print_exc()
+
+            except Exception as e:
+                print(f"[Error] {strat} failed on seed {current_seed}: {e}")
+                import traceback
+                traceback.print_exc()
+
+    # Restore originals
+    config.BATCH_SIZE       = orig_batch
+    config.GRAD_ACCUM_STEPS = orig_accum
+    print(f"\n[Main] Phase 3.5 SOTA Benchmark complete for {model_name}.")
+
 def main() -> None:
     """
     Core entry point. Dispatches based on RUN_MODE in config.py.
@@ -738,6 +805,9 @@ def main() -> None:
         return
     if RUN_MODE == "phase3_21k":
         run_phase3_21k(MODEL_NAME)
+        return
+    if RUN_MODE == "phase3_sota_b3":
+        run_phase3_sota_b3(MODEL_NAME)
         return
     if RUN_MODE == "tier3_ablations":
         set_seed(SEED)
