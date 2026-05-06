@@ -4,8 +4,8 @@ from pathlib import Path
 # ── Paths ─────────────────────────────────────────────────────────────────────
 DATASET_ROOT   = Path(r"C:\Users\vibha\Downloads\archive")
 PROCESSED_ROOT = DATASET_ROOT / "processed_dataset_51k"
-RESULTS_DIR    = DATASET_ROOT / "results_sota_B3"
-CHECKPOINT_DIR = DATASET_ROOT / "checkpoints_sota_B3"
+RESULTS_DIR    = DATASET_ROOT / "results_51k_label_sweep"
+CHECKPOINT_DIR = DATASET_ROOT / "checkpoints_51k_label_sweep"
 
 # ── Dataset ───────────────────────────────────────────────────────────────────
 CLASSES        = ["bus", "car", "truck"]   # sorted — index 0,1,2
@@ -102,7 +102,7 @@ DOMAIN_CLASSIFIER_DEPTH = "shallow"      # alternative: "deep"
 # Change these two values to switch between the 12 runs
 
 # Options: "custom_cnn" | "resnet18" | "efficientnet_b0"
-MODEL_NAME   = "efficientnet_b3"
+MODEL_NAME   = "efficientnet_b0"
 
 # Options: "target_only" | "source_only" | "finetune" | "dann"
 EXPERIMENT   = "dann"
@@ -114,17 +114,17 @@ EXPERIMENT   = "dann"
 # "all_seeds" — runs the full 12-run pipeline for all 3 seeds back to back
 # "direction1" — overnight target-label-ratio sweep for DANN
 # "lambda_grid" — Phase 2 Tier 1: Lambda/Gamma sweep
-RUN_MODE = "phase3_sota_b3"
+RUN_MODE = "direction1"
 
 # Models to include in pipeline runs
-MODELS_TO_RUN = ["efficientnet_b3"]
+MODELS_TO_RUN = ["efficientnet_b0"]
 SAVE_EPOCH_FEATURES = False
 SAVE_FEATURES_EVERY_N = 3    # save features every N epochs (epoch 1 always saved)
 
 # ── Direction 1 (Night Label Ratio Study) ───────────────────────────────────
 # Sweeps target-domain label availability from 0% → 100% inside warmstarted DANN.
 # Existing baselines (source_only / target_only / finetune) remain unchanged.
-DIRECTION1_ACTIVE = False
+DIRECTION1_ACTIVE = True
 DIRECTION1_EXPERIMENT_NAME = "direction1_label_ratio"
 DIRECTION1_MODELS_TO_RUN = ["efficientnet_b0"]
 DIRECTION1_LABEL_RATIOS = [0.00, 0.05, 0.10, 0.25, 0.50, 0.75, 1.00]
