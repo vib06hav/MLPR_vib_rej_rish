@@ -7,12 +7,22 @@ PROCESSED_ROOT = DATASET_ROOT / "processed_dataset_51k"
 RESULTS_DIR    = DATASET_ROOT / "results_51k_label_sweep"
 CHECKPOINT_DIR = DATASET_ROOT / "checkpoints_51k_label_sweep"
 
+# ── Direction 2 / IDD Paths (completely separate from BDD) ───────────────
+IDD_ROOT           = Path(r"C:\Users\vibha\Downloads\idd-20k-II")
+IDD_PROCESSED_ROOT = IDD_ROOT / "idd_final"
+IDD_CHECKPOINT_DIR = IDD_ROOT / "checkpoints_direction2_idd"
+IDD_RESULTS_DIR    = IDD_ROOT / "results_direction2_idd"
+
 # ── Dataset ───────────────────────────────────────────────────────────────────
 CLASSES        = ["bus", "car", "truck"]   # sorted — index 0,1,2
 NUM_CLASSES    = 3
 DOMAINS        = ["day", "night"]          # day=0, night=1
 SPLITS         = ["train", "val", "test"]
 INPUT_SIZE     = 224
+
+# IDD has 5 classes including novel Indian vehicle types
+IDD_CLASSES     = ["autorickshaw", "bus", "car", "motorcycle", "truck"]  # sorted
+IDD_NUM_CLASSES = 5
 
 CAP            = 1246                      # crops per class per domain after balancing
 
@@ -114,7 +124,8 @@ EXPERIMENT   = "dann"
 # "all_seeds" — runs the full 12-run pipeline for all 3 seeds back to back
 # "direction1" — overnight target-label-ratio sweep for DANN
 # "lambda_grid" — Phase 2 Tier 1: Lambda/Gamma sweep
-RUN_MODE = "direction1"
+# "direction2" — overnight IDD few-shot transfer sweep
+RUN_MODE = "direction2"
 
 # Models to include in pipeline runs
 MODELS_TO_RUN = ["efficientnet_b0"]
@@ -132,6 +143,16 @@ DIRECTION1_SAVE_EPOCH_FEATURES = True
 DIRECTION1_FEATURE_SAVE_EVERY_N = 2
 DIRECTION1_REQUIRE_WARMSTART = True
 DIRECTION1_AUTO_SOURCE_ONLY = True
+
+# ── Direction 2 (IDD Few-Shot Transfer Study) ───────────────────────────
+# Loads the best BDD checkpoint for each Direction 1 ratio, fine-tunes
+# on K IDD shots, and evaluates on the IDD test set.
+# ALL hyperparameters (LR, batch size, augmentation) remain locked.
+DIRECTION2_ACTIVE         = False
+DIRECTION2_MODEL_NAME     = "efficientnet_b0"
+DIRECTION2_BDD_RATIOS     = [0.00, 0.05, 0.25, 0.50, 0.75, 1.00]  # Which BDD checkpoints to load
+DIRECTION2_SHOT_COUNTS    = [1, 5, 10, 25, 50]                     # K-shot values to sweep
+DIRECTION2_SEEDS          = [42, 43, 44]                            # 3 seeds for IDD sampling
 
 # Effective proportion of labelled NIGHT train samples used in DANN class loss.
 # 1.0 = all labelled, 0.0 = no night class labels, intermediate values = partial labels.

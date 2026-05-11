@@ -832,6 +832,10 @@ def main() -> None:
     elif RUN_MODE == "direction1":
         run_direction1()
 
+    elif RUN_MODE == "direction2":
+        from direction2_idd import run_direction2
+        run_direction2()
+
     elif RUN_MODE == "exp1":
         run_all_exp1()
 
